@@ -15,9 +15,22 @@ def jsonloader(filename):
     with open(filename, "r") as jsonfile:
         return json.load(jsonfile)
 
-class DataLoader(types.ModuleType):
+class DataLoader():
+    '''
+        Need to define a __path__ so that the following code chunk from
+        cpython does not throw a keyerror in _find_and_load_unlocked
+
+        if name in sys.modules:
+            return sys.modules[name]
+        parent_module = sys.modules[parent]
+        try:
+            path = parent_module.__path__
+        except AttributeError:
+            msg = (_ERR_MSG + '; {!r} is not a package').format(name, parent)
+            raise ModuleNotFoundError(msg, name=name) from None
+    '''
     __path__ = 'dataloader'
-    data_loaders = {}
+    data_loaders = {} # Define this so that we don't infinitely recurse on setattr/getattr
 
     def __init__(self, data, *args, **kwargs):
         self.data_loaders = {
@@ -36,12 +49,12 @@ class DataLoader(types.ModuleType):
         return super().__getattr__(attr_name)
 
     '''
-    This is to prevent the following code chunk from clobbering
-    our ability to access our loaders when importing like:
+    This is to allow imports like the following to work
 
     import dataimport.test.csv
 
 
+    This is a chunk of source from cpython in _find_and_load_unlocked that would otherwise break our package
 
     if parent:
       # Set the module as an attribute on its parent.
@@ -54,7 +67,9 @@ class DataLoader(types.ModuleType):
           _warnings.warn(msg, ImportWarning)
 
     Without throwing away setattr calls to our loaders, this would attach a 'csv'
-    attribute, cutting off access to the csv loader from __getattr__
+    attribute, cutting off access to the csv loader from __getattr__, which is needed
+    so that the csv loader is called on import, giving the user the actual loaded data
+    and not the data loader itself
     '''
     def __setattr__(self, name, value):
         if name in self.data_loaders:
@@ -70,6 +85,19 @@ class DataImportFinder(importlib.abc.MetaPathFinder):
         super().__init__(*args, **kwargs)
 
     def find_spec(self, fullname, path, target=None):
+        # I would normally want to discard the common prefix
+        # but that causes the following code from cypthon _find_and_load_unlocked
+        # to throw an exception
+        #
+        # # Crazy side-effects!
+        # if name in sys.modules:
+        #     return sys.modules[name]
+        # parent_module = sys.modules[parent] <- this right here
+        # try:
+        #     ...
+        #
+        # By mangling the name, the "parent" name that it would search for would throw a key error
+        # So we don't mangle it here, and instead strip it off in the loader
         if fullname.startswith(_COMMON_PREFIX):
             return self._gen_spec(fullname)
 
@@ -78,7 +106,7 @@ class DataImportFinder(importlib.abc.MetaPathFinder):
 
 class DataImportLoader(importlib.abc.Loader):
     def __init__(self, *args, **kwargs):
-        self.module = DataLoader(None, 'DataLoader', 'Module I created or something')
+        self.module = DataLoader(None)
         super().__init__(*args, **kwargs)
 
     def create_module(self, spec):
