@@ -1,6 +1,7 @@
 import importlib.abc
 import importlib.machinery
 import importlib.util
+from pathlib import Path
 import types
 
 import csv
@@ -38,6 +39,7 @@ class DataLoader():
             'json': jsonloader,
         }
         self.data = data
+        self.prefix = Path('./')
         super().__init__(*args, **kwargs)
 
     def register(self, name, loader):
@@ -45,7 +47,7 @@ class DataLoader():
 
     def __getattr__(self, attr_name):
         if attr_name in self.data_loaders:
-            return self.data_loaders[attr_name](self.data)
+            return self.data_loaders[attr_name](self.prefix / self.data)
         return super().__getattr__(attr_name)
 
     '''
